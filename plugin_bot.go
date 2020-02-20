@@ -1,11 +1,8 @@
 package brainwave_yagpdb
 
 import (
-	"encoding/json"
 	"fmt"
 
-	"github.com/jbowens/codenames"
-	"github.com/jinzhu/gorm"
 	"github.com/jonas747/dcmd"
 	"github.com/jonas747/yagpdb/commands"
 	"github.com/jonas747/yagpdb/common"
@@ -13,36 +10,8 @@ import (
 
 var logger = common.GetPluginLogger(&Plugin{})
 
-type brainwaveGame struct {
-	gorm.Model
-	GuildID   int64           `gorm:"primary_key;auto_increment:false"`
-	ChannelID string          `gorm:"primary_key;auto_increment:false"`
-	Game      codenames.Game  `gorm:"-"`
-	GameSave  json.RawMessage `sql:"type:json"`
-}
-
-func (g *brainwaveGame) BeforeSave() error {
-	gameObj, err := json.Marshal(g.Game)
-	if err != nil {
-		logger.WithError(err).Errorf("failed to save game")
-		return err
-	}
-
-	g.GameSave = gameObj
-	return nil
-}
-
-func (g *brainwaveGame) AfterFind() {
-	if err := json.Unmarshal(g.GameSave, &g.Game); err != nil {
-		logger.WithError(err).Errorf("failed to restore game")
-		return
-	}
-
-	g.GameSave = json.RawMessage{}
-}
-
 func RegisterPlugin() {
-	if err := common.GORM.AutoMigrate(&brainwaveGame{}).Error; err != nil {
+	if err := common.GORM.AutoMigrate(&Game{}).Error; err != nil {
 		logger.WithError(err).Fatal("brainwave failed to initialize DB")
 	}
 
@@ -81,20 +50,21 @@ func (p *Plugin) BotInit() {
 func runAction(parsed *dcmd.Data) (interface{}, error) {
 	action := parsed.Args[0].Value.(Action)
 	arg1 := parsed.Args[1].Str()
+
+        game, err := loadGameFromDB(parsed.GS.ID, parsed.CS.ID)
+        if err != nil {
+                return "Life is cruel, and your game has been lost. Please start a new one.", nil
+        }
+
 	switch action {
 	case Lead:
-		return runLead(arg1)
+		return game.runLead(arg1)
+        case Start:
+                return game.runStart()
 	case Touch:
-		return runTouch(arg1)
+		return game.runTouch(arg1)
 	default:
 		return fmt.Sprintf("I don't know '%s'. Care to try one of my many other fine commands?", action), nil
 	}
 }
 
-func runLead(team string) (interface{}, error) {
-	return nil, nil
-}
-
-func runTouch(word string) (interface{}, error) {
-	return nil, nil
-}

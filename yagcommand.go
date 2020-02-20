@@ -12,8 +12,9 @@ type Action string
 const (
         Invalid = "XXinvalidXX"
         Lead = "lead"
-        Touch = "touch"
+        Start = "start"
         Teams = "teams"
+        Touch = "touch"
 )
 
 func fromString(s string) (Action, bool) {
@@ -21,10 +22,12 @@ func fromString(s string) (Action, bool) {
         switch s {
         case "lead":
                 return Lead, true
-        case "touch":
-                return Touch, true
+        case "start":
+                return Start, true
         case "teams":
                 return Teams, true
+        case "touch":
+                return Touch, true
         default:
                 return Invalid, false
         }
