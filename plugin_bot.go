@@ -58,7 +58,7 @@ func runAction(parsed *dcmd.Data) (interface{}, error) {
 
 	switch action {
 	case Lead:
-		return game.runLead(arg1)
+		return game.runLead(parsed.Msg.Author, arg1)
         case Start:
                 return game.runStart()
 	case Touch:
