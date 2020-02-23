@@ -24,7 +24,8 @@ func TestGameSave(t *testing.T) {
 
 	mock.ExpectBegin()
 	mock.ExpectQuery(`INSERT INTO "brainwave_games"`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), nil, 1057, 378365823572, sqlmock.AnyArg(), sqlmock.AnyArg(), gameSave).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), nil,
+			1057, 378365823572, gameSave, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).
 			AddRow(1))
 	mock.ExpectCommit()

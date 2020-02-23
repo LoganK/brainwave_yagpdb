@@ -1,9 +1,13 @@
 package brainwave_yagpdb
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image/jpeg"
+	"io"
+	"io/ioutil"
 	"strings"
 	"text/template"
 
@@ -11,6 +15,14 @@ import (
 	"github.com/jinzhu/gorm"
 	"github.com/jonas747/discordgo"
 	"github.com/jonas747/yagpdb/common"
+)
+
+var (
+	// We make a best-effort attempt to clean up after ourselves. Maps
+	// channels to sent messages. (We don't persist this because it greatly
+	// complicates the logic.)
+	// TODO: Avoid slow, but boundless, growth over time.
+	sentBoardMessages = make(map[int64]int64)
 )
 
 // The captains are Discord userids but stored as strings for future migration
@@ -22,11 +34,13 @@ type Captains struct {
 
 type Game struct {
 	gorm.Model
-	GuildID   int64           `gorm:"primary_key;auto_increment:false"`
-	ChannelID int64           `gorm:"primary_key;auto_increment:false"`
-	Captains  Captains        `gorm:"embedded;embedded_prefix:captain_"`
-	Game      codenames.Game  `gorm:"-"`
-	GameSave  json.RawMessage `sql:"type:json"`
+	GuildID   int64 `gorm:"primary_key;auto_increment:false"`
+	ChannelID int64 `gorm:"primary_key;auto_increment:false"`
+
+	// Data that should probably be moved into codenames.Game
+	Game     codenames.Game  `gorm:"-"`
+	GameSave json.RawMessage `sql:"type:json"`
+	Captains Captains        `gorm:"embedded;embedded_prefix:captain_"`
 }
 
 var (
@@ -76,7 +90,65 @@ func (g *Game) runStart() (interface{}, error) {
 		}
 	}
 
-	return fmt.Sprintf("%s starts!", g.Game.CurrentTeam()), nil
+	return g.updateBoard()
+}
+
+func (g *Game) updateBoard() (interface{}, error) {
+	asJpeg := func(v codenames.Viewer) io.Reader {
+		img, err := g.Game.RenderGameBoard(v)
+		if err != nil {
+			logger.WithError(err).Errorf("failed to render board")
+			return nil
+		}
+
+		var b bytes.Buffer
+		if err := jpeg.Encode(&b, img, &jpeg.Options{90}); err != nil {
+			logger.WithError(err).Errorf("failed to encode board")
+			return nil
+		}
+
+		return &b
+	}
+
+	captainBoard := make(chan io.Reader)
+	defer close(captainBoard)
+	go func() { captainBoard <- asJpeg(codenames.Spymaster) }()
+
+	playerBoard := make(chan io.Reader)
+	go func() { playerBoard <- asJpeg(codenames.Player) }()
+	defer close(playerBoard)
+
+	// We don't cache the private channels because the captains may have changed.
+	redChn, err := common.BotSession.UserChannelCreate(g.Captains.Red)
+	if err != nil {
+		logger.WithError(err).Errorf("failed to create private channel")
+	}
+	blueChn, err := common.BotSession.UserChannelCreate(g.Captains.Blue)
+	if err != nil {
+		logger.WithError(err).Errorf("failed to create private channel")
+	}
+
+	turnMsg := fmt.Sprintf("It's %s's turn!", g.Game.CurrentTeam())
+
+	sendBoard := func(channelID int64, r io.Reader) {
+		if msgID := sentBoardMessages[channelID]; msgID != 0 {
+			// Clear out any boards we've sent. This isn't necessary, but let's try
+			// not to fill up all of Discord's hard drives.
+			common.BotSession.ChannelMessageDelete(channelID, msgID)
+		}
+		msg, _ := common.BotSession.ChannelMessageSendComplex(
+			channelID, &discordgo.MessageSend{
+				File: &discordgo.File{Reader: r}, Content: turnMsg})
+		sentBoardMessages[channelID] = msg.ID
+	}
+
+	captainBytes, _ := ioutil.ReadAll(<-captainBoard)
+	sendBoard(redChn.ID, bytes.NewReader(captainBytes))
+	sendBoard(blueChn.ID, bytes.NewReader(captainBytes))
+
+	sendBoard(g.ChannelID, <-playerBoard)
+
+	return nil, nil
 }
 
 func (g *Game) runLead(user *discordgo.User, team string) (interface{}, error) {
