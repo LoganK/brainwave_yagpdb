@@ -9,4 +9,3 @@ import (
 var _ bot.BotInitHandler = (*Plugin)(nil)
 var _ commands.CommandProvider = (*Plugin)(nil)
 var _ common.Plugin = (*Plugin)(nil)
-
