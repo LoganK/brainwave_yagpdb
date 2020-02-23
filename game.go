@@ -1,8 +1,10 @@
 package brainwave_yagpdb
 import (
         "encoding/json"
+        "errors"
         "fmt"
         "strings"
+        "text/template"
 
 	"github.com/jbowens/codenames"
 	"github.com/jinzhu/gorm"
@@ -10,19 +12,35 @@ import (
 	"github.com/jonas747/yagpdb/common"
 )
 
-/// The captains are Discord userids
-type captains struct {
-        Red  int64
-        Blue int64
+// The captains are Discord userids but stored as strings for future migration
+// back to the core library.
+type Captains struct {
+        Red  string
+        Blue string
 }
 
 type Game struct {
 	gorm.Model
 	GuildID   int64           `gorm:"primary_key;auto_increment:false"`
 	ChannelID int64           `gorm:"primary_key;auto_increment:false"`
-        Captains  captains        `gorm:"embedded;embedded_prefix:captain_"`
+        Captains  Captains        `gorm:"embedded;embedded_prefix:captain_"`
 	Game      codenames.Game  `gorm:"-"`
 	GameSave  json.RawMessage `sql:"type:json"`
+}
+
+var (
+        ErrNoCaptains = errors.New("game is missing a captain")
+)
+
+func (g *Game) Start(wordList []string) error {
+        if g.Captains.Red == "" || g.Captains.Blue == "" {
+                return ErrNoCaptains
+        }
+
+        // TODO: Words would be useful...
+        g.Game = *codenames.NewGame(wordList)
+
+        return nil
 }
 
 func (g *Game) TableName() string {
@@ -51,15 +69,12 @@ func (g *Game) AfterFind() {
 
 
 func (g *Game) runStart() (interface{}, error) {
-        if g.Captains.Red == 0 {
-                return "You can't start a game without both captains. `bw lead red`?", nil
+        if err := g.Start(defaultWordsEnUs); err != nil {
+                if err == ErrNoCaptains {
+                        return template.Must(template.New("NoCaptainStart").
+                                Parse("You can't start a game without both captains. `{{.Data.Keyword}} lead (red|blue)`?")), nil
+                }
         }
-        if g.Captains.Blue == 0 {
-                return "You can't start a game without both captains. `bw lead blue`?", nil
-        }
-
-        // TODO: Words would be useful...
-        g.Game = *codenames.NewGame([]string{})
 
         return fmt.Sprintf("%s starts!", g.Game.CurrentTeam()), nil
 }
@@ -69,16 +84,16 @@ func (g *Game) runLead(user *discordgo.User, team string) (interface{}, error) {
         var t codenames.Team
         switch team[0] {
         case 'r':
-                g.Captains.Red = user.ID
+                g.Captains.Red = discordgo.StrID(user.ID)
                 t = codenames.Red
         case 'b':
-                g.Captains.Blue = user.ID
+                g.Captains.Blue = discordgo.StrID(user.ID)
                 t = codenames.Blue
         default:
                 return "You must specify red or blue.", nil
         }
 
-        return fmt.Sprintf("%s is now the %s captain", user.Username, t), nil
+        return fmt.Sprintf("{{.Msg.Author.Username}} is now the %s captain", t), nil
 }
 
 func (g *Game) runTouch(word string) (interface{}, error) {

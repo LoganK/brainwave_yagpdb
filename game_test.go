@@ -46,3 +46,30 @@ func TestGameSave(t *testing.T) {
 		t.Errorf("want %d; got %d", codenames.Blue, read.Game.StartingTeam)
 	}
 }
+
+func TestStartChecksCaptains(t *testing.T) {
+        g := Game {
+                Captains: Captains {
+                        Red: "378365823572",
+                },
+        }
+
+        err := g.Start(defaultWordsEnUs)
+        if err != ErrNoCaptains {
+                t.Errorf("expected start to fail without captains: %v", err)
+        }
+}
+
+func TestStart(t *testing.T) {
+        g := Game {
+                Captains: Captains {
+                        Red: "378365823572",
+                        Blue: "7398572852523",
+                },
+        }
+
+        err := g.Start(defaultWordsEnUs)
+        if err != nil {
+                t.Errorf("expected start to succeed: %v", err)
+        }
+}
